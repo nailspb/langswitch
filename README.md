@@ -16,6 +16,20 @@
 
 Иконка рисуется командой `go run ./tools/genicon` в `assets/icon.png`, упрощённая иконка трея — `go run ./tools/genicon -tray` в `assets/tray.png`; на Windows из неё же собирается ресурс exe (`rsrc_windows_amd64.syso`, утилита `go-winres`). `make build` делает это автоматически, `make icon` — перерисовать.
 
+## Установка
+
+Готовые сборки — на странице [Releases](https://github.com/nailspb/langswitch/releases/latest):
+
+- **Windows:** `langswitch-windows-amd64.exe` — запустить, установка не нужна.
+- **macOS:** `langswitch-macos-universal.zip` — распаковать `LangSwitch.app` в «Программы». Приложение не нотаризовано, поэтому при первом запуске: правый клик → «Открыть», либо `xattr -dr com.apple.quarantine /Applications/LangSwitch.app`.
+- **Linux (X11):** `langswitch-linux-amd64.tar.gz` — нужны `libxtst6` и `libxkbcommon0`, glibc 2.35+.
+
+Релиз собирается GitHub Actions автоматически при пуше тега `v*`:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
 ## Сборка
 
 Fyne требует CGO, поэтому нужен компилятор C.

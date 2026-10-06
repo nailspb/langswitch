@@ -25,7 +25,7 @@ BIN   := $(APP)$(EXT)
 DEBUG := $(APP)-debug$(EXT)
 
 .DEFAULT_GOAL := help
-.PHONY: help build run debug icon tidy fmt vet test check clean
+.PHONY: help build run debug app icon tidy fmt vet test check clean
 
 help: ## Показать эту справку
 	@echo "Использование: make <цель>"
@@ -41,6 +41,9 @@ run: build ## Собрать и запустить
 debug: $(ICON) $(TRAY) $(RSRC) ## Собрать с консолью (видны логи) и запустить
 	go build -ldflags "-X main.version=$(VERSION)" -o $(DEBUG) .
 	./$(DEBUG)
+
+app: build ## Собрать LangSwitch.app (только macOS)
+	packaging/macos/bundle.sh $(BIN) $(VERSION) .
 
 icon: ## Перерисовать иконки приложения и трея
 	rm -f $(ICON) $(TRAY) $(RSRC)
@@ -70,4 +73,4 @@ test: ## Запустить тесты
 check: fmt vet test ## fmt + vet + test
 
 clean: ## Удалить собранные файлы
-	rm -f $(BIN) $(DEBUG)
+	rm -rf $(BIN) $(DEBUG) LangSwitch.app

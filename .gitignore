@@ -3,7 +3,10 @@ langswitch
 langswitch.exe
 langswitch-debug
 langswitch-debug.exe
+LangSwitch.app/
 *.syso
+build/
+dist/
 
 # Редакторы
 .idea/
