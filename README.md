@@ -42,7 +42,7 @@ go mod tidy
 |---|---|---|
 | Windows | gcc (MSYS2 mingw-w64 или WinLibs) | `go build -ldflags "-H windowsgui" -o langswitch.exe .` |
 | macOS | `xcode-select --install` | `go build -o langswitch .` |
-| Linux | `gcc libgl1-mesa-dev xorg-dev libxtst-dev libxkbcommon-dev` | `go build -o langswitch .` |
+| Linux | `gcc libgl1-mesa-dev xorg-dev libxtst-dev libxkbcommon-dev libwayland-dev` | `go build -o langswitch .` |
 
 ## Ограничения
 
