@@ -24,6 +24,7 @@ type Config struct {
 	ExcludeEnabled   bool     `json:"exclude_enabled"`    // не работать в приложениях из ExcludedApps
 	ExcludedApps     []string `json:"excluded_apps"`      // имена исполняемых файлов, например "mstsc.exe"
 	UpdateCheck      bool     `json:"update_check"`       // проверять обновления на GitHub
+	Enabled          bool     `json:"enabled"`            // общий выключатель: false — программа ничего не делает
 }
 
 // Default возвращает настройки по умолчанию. Load накладывает файл поверх них,
@@ -41,6 +42,7 @@ func Default() Config {
 		PhraseTriple:     true,
 		ExcludeEnabled:   true,
 		UpdateCheck:      true,
+		Enabled:          true,
 	}
 }
 

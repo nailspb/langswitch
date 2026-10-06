@@ -32,6 +32,8 @@ func main() {
 		log.Fatal("системный трей не поддерживается")
 	}
 
+	a.Settings().SetTheme(appTheme{})
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("настройки: %v; используются настройки по умолчанию", err)
@@ -117,6 +119,9 @@ func toSettings(c config.Config) (engine.Settings, error) {
 	}
 	if c.ExcludeEnabled {
 		s.Excluded = c.ExcludedApps
+	}
+	if !c.Enabled {
+		s.Switch, s.WordOn, s.SelectionOn, s.PhraseOn, s.Excluded = nil, false, false, false, nil
 	}
 	return s, nil
 }

@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -20,14 +21,16 @@ import (
 	"langswitch/internal/sound"
 )
 
-// Окно не сжимается меньше этого размера.
-var minWindowSize = fyne.NewSize(520, 520)
+var (
+	minWindowSize = fyne.NewSize(780, 560) // окно не сжимается меньше этого размера
+	sidebarWidth  = float32(210)
+)
 
 type settingsUI struct {
 	eng           *engine.Engine
 	win           fyne.Window
 	cfg           config.Config
-	status        *widget.Label
+	status        *callout
 	switchList    *fyne.Container
 	convertList   *fyne.Container
 	recording     *widget.Button // кнопка, для которой сейчас записывается сочетание
@@ -39,95 +42,54 @@ type settingsUI struct {
 	pickButton *widget.Button // «Выбрать приложение»
 }
 
+// navPage — пункт бокового меню и его страница.
+type navPage struct {
+	icon    fyne.Resource
+	title   string
+	content fyne.CanvasObject
+}
+
 // newSettingsUI строит окно настроек. Изменения применяются и сохраняются сразу.
 func newSettingsUI(a fyne.App, eng *engine.Engine, cfg config.Config, up *updater) *settingsUI {
 	u := &settingsUI{
 		eng:         eng,
-		win:         a.NewWindow("LangSwitch — настройки"),
+		win:         a.NewWindow("LangSwitch"),
 		cfg:         cfg,
-		status:      widget.NewLabel(""),
+		status:      newCallout(),
 		switchList:  container.NewVBox(),
 		convertList: container.NewVBox(),
 		up:          up,
 		phraseList:  container.NewVBox(),
 		appList:     container.NewVBox(),
 	}
-	u.status.Importance = widget.DangerImportance
-	u.status.Wrapping = fyne.TextWrapWord
 	u.refresh()
 
-	addSwitch := widget.NewButtonWithIcon("Добавить сочетание", theme.ContentAddIcon(), nil)
-	addSwitch.OnTapped = func() {
-		u.record(addSwitch, func(h keys.Hotkey) error {
-			u.cfg.SwitchHotkeys = appendUnique(u.cfg.SwitchHotkeys, h.String())
-			return nil
-		})
+	pages := []navPage{
+		{theme.ViewRefreshIcon(), "Переключение", u.switchPage()},
+		{theme.DocumentCreateIcon(), "Конвертация", u.convertPage()},
+		{theme.VisibilityOffIcon(), "Исключения", u.excludePage()},
+		{theme.SettingsIcon(), "Общие", u.generalPage()},
 	}
-	addConvert := widget.NewButtonWithIcon("Добавить клавишу", theme.ContentAddIcon(), nil)
-	addConvert.OnTapped = func() {
-		u.record(addConvert, func(h keys.Hotkey) error {
-			if len(h) != 1 {
-				return errors.New("для двойного нажатия нужна одна клавиша")
+	content := container.NewStack(pages[0].content)
+	items := make([]*pill, len(pages))
+	nav := container.NewVBox()
+	for i, p := range pages {
+		items[i] = newNavItem(p.icon, p.title, func() {
+			for j, it := range items {
+				it.setSelected(j == i)
 			}
-			u.cfg.ConvertKeys = appendUnique(u.cfg.ConvertKeys, h.String())
-			return nil
+			content.Objects = []fyne.CanvasObject{p.content}
+			content.Refresh()
 		})
+		nav.Add(items[i])
 	}
+	items[0].selected = true
 
-	intervalLabel := widget.NewLabel(fmt.Sprintf("%d мс", cfg.DoubleIntervalMs))
-	interval := widget.NewSlider(150, 1000)
-	interval.Step = 50
-	interval.SetValue(float64(cfg.DoubleIntervalMs))
-	interval.OnChanged = func(v float64) { intervalLabel.SetText(fmt.Sprintf("%d мс", int(v))) }
-	interval.OnChangeEnded = func(v float64) {
-		u.cfg.DoubleIntervalMs = int(v)
-		u.apply()
-	}
-
-	soundCheck := widget.NewCheck("Звук при переключении раскладки", nil)
-	soundCheck.SetChecked(cfg.Sound)
-	soundCheck.OnChanged = func(on bool) {
-		u.cfg.Sound = on
-		u.apply()
-		if on {
-			sound.Play()
-		}
-	}
-
-	autostartCheck := widget.NewCheck("Запускать при входе в систему", nil)
-	autostartCheck.SetChecked(autostart.Enabled())
-	autostartCheck.OnChanged = func(on bool) {
-		if err := autostart.Set(on); err != nil {
-			u.status.SetText("Автозапуск: " + err.Error())
-			return
-		}
-		u.status.SetText("")
-	}
-
-	content := container.NewVBox(
-		widget.NewCard("Переключение языка", "Нажатие любого из сочетаний включает следующую раскладку",
-			container.NewVBox(u.toggle("Включено", &u.cfg.SwitchEnabled), u.switchList, addSwitch)),
-		widget.NewCard("Конвертация текста",
-			"Двойное нажатие клавиши переводит в другую раскладку последнее набранное слово, а если его нет — выделенный текст",
-			container.NewVBox(
-				u.toggle("Последнее слово", &u.cfg.WordEnabled),
-				u.toggle("Выделенный текст", &u.cfg.SelectionEnabled),
-				u.convertList, addConvert,
-			)),
-		u.phraseCard(),
-		u.excludeCard(),
-		widget.NewCard("Дополнительно", "", container.NewVBox(
-			container.NewBorder(nil, nil, widget.NewLabel("Интервал между нажатиями"), intervalLabel, interval),
-			soundCheck,
-			autostartCheck,
-			u.updateBox(),
-		)),
-		u.status,
-	)
-
+	body := container.NewBorder(
+		container.New(layout.NewCustomPaddedLayout(12, 0, 24, 24), u.status.box), nil, nil, nil, content)
 	minSize := canvas.NewRectangle(color.Transparent)
 	minSize.SetMinSize(minWindowSize)
-	u.win.SetContent(container.NewStack(minSize, container.NewVScroll(container.NewPadded(content))))
+	u.win.SetContent(container.NewStack(minSize, container.NewBorder(nil, nil, u.sidebar(nav), nil, body)))
 	u.win.Resize(minWindowSize)
 	u.win.SetCloseIntercept(func() {
 		u.stopRecording()
@@ -137,7 +99,192 @@ func newSettingsUI(a fyne.App, eng *engine.Engine, cfg config.Config, up *update
 	return u
 }
 
-// refresh перестраивает списки сочетаний из u.cfg.
+// sidebar — боковая панель: название, меню и общий выключатель внизу.
+func (u *settingsUI) sidebar(nav fyne.CanvasObject) fyne.CanvasObject {
+	brand := widget.NewLabelWithStyle("LangSwitch", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	brand.SizeName = theme.SizeNameSubHeadingText
+
+	state := hintLabel("Работает")
+	setState := func(on bool) {
+		if on {
+			state.SetText("Работает")
+		} else {
+			state.SetText("Приостановлено")
+		}
+	}
+	setState(u.cfg.Enabled)
+	master := newToggle(u.cfg.Enabled, func(on bool) {
+		u.cfg.Enabled = on
+		setState(on)
+		u.apply()
+	})
+	footer := container.NewBorder(separator(), nil, nil, nil,
+		container.New(layout.NewCustomPaddedLayout(8, 8, 14, 10),
+			container.NewBorder(nil, nil, vcenter(master), nil,
+				container.New(layout.NewCustomPaddedVBoxLayout(-14), widget.NewLabel("Включено"), state))))
+
+	body := container.NewBorder(
+		container.New(layout.NewCustomPaddedLayout(14, 6, 10, 10), brand),
+		footer, nil, nil,
+		container.New(layout.NewCustomPaddedLayout(0, 0, 10, 10), nav),
+	)
+	bg := canvas.NewRectangle(colBgElev)
+	width := canvas.NewRectangle(color.Transparent)
+	width.SetMinSize(fyne.NewSize(sidebarWidth, 0))
+	edge := canvas.NewRectangle(colBorder)
+	edge.SetMinSize(fyne.NewSize(1, 0))
+	return container.NewBorder(nil, nil, nil, edge, container.NewStack(bg, width, body))
+}
+
+func (u *settingsUI) switchPage() fyne.CanvasObject {
+	add := widget.NewButtonWithIcon("Добавить сочетание", theme.ContentAddIcon(), nil)
+	add.OnTapped = func() {
+		u.record(add, func(h keys.Hotkey) error {
+			u.cfg.SwitchHotkeys = appendUnique(u.cfg.SwitchHotkeys, h.String())
+			return nil
+		})
+	}
+	return page("Переключение языка", "Нажатие любого из сочетаний включает следующую раскладку",
+		card(u.toggleRow("Переключать по сочетаниям", "", &u.cfg.SwitchEnabled)),
+		caption("СОЧЕТАНИЯ КЛАВИШ"),
+		card(u.switchList, separator(), container.NewHBox(add)),
+	)
+}
+
+func (u *settingsUI) convertPage() fyne.CanvasObject {
+	add := widget.NewButtonWithIcon("Добавить клавишу", theme.ContentAddIcon(), nil)
+	add.OnTapped = func() {
+		u.record(add, func(h keys.Hotkey) error {
+			if len(h) != 1 {
+				return errors.New("для двойного нажатия нужна одна клавиша")
+			}
+			u.cfg.ConvertKeys = appendUnique(u.cfg.ConvertKeys, h.String())
+			return nil
+		})
+	}
+	addPhrase := widget.NewButtonWithIcon("Добавить клавишу", theme.ContentAddIcon(), nil)
+	addPhrase.OnTapped = func() {
+		u.record(addPhrase, func(h keys.Hotkey) error {
+			if len(h) != 1 {
+				return errors.New("для двойного нажатия нужна одна клавиша")
+			}
+			u.cfg.PhraseKeys = appendUnique(u.cfg.PhraseKeys, h.String())
+			return nil
+		})
+	}
+	phraseKeys := container.NewVBox(separator(), widget.NewLabel("Клавиши фразы (двойное нажатие)"),
+		u.phraseList, container.NewHBox(addPhrase))
+	mode := 1
+	if u.cfg.PhraseTriple {
+		mode = 0
+		phraseKeys.Hide()
+	}
+	modes := segmented([]string{"Тройное нажатие", "Отдельная клавиша"}, mode, func(i int) {
+		u.cfg.PhraseTriple = i == 0
+		if u.cfg.PhraseTriple {
+			phraseKeys.Hide()
+		} else {
+			phraseKeys.Show()
+		}
+		u.apply()
+	})
+
+	return page("Конвертация текста", "Перевод набранного в другую раскладку: ghbdtn → привет",
+		caption("ДВОЙНОЕ НАЖАТИЕ"),
+		card(
+			u.toggleRow("Последнее слово", "Стирает слово, переключает раскладку и набирает его заново", &u.cfg.WordEnabled),
+			separator(),
+			u.toggleRow("Выделенный текст",
+				"Если после перемещения курсора ничего не набрано — переводит выделение через буфер обмена", &u.cfg.SelectionEnabled),
+		),
+		caption("КЛАВИШИ КОНВЕРТАЦИИ"),
+		card(u.convertList, separator(), container.NewHBox(add)),
+		caption("ФРАЗА"),
+		card(
+			u.toggleRow("Конвертация фразы",
+				"Весь текст, набранный после последнего клика, Enter или стрелок", &u.cfg.PhraseEnabled),
+			separator(),
+			row("Способ", "Третье нажатие клавиши конвертации или двойное нажатие своей клавиши", modes),
+			phraseKeys,
+		),
+	)
+}
+
+func (u *settingsUI) excludePage() fyne.CanvasObject {
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Имя программы, например mstsc.exe")
+	add := func() {
+		if name := strings.TrimSpace(entry.Text); name != "" {
+			u.cfg.ExcludedApps = appendUnique(u.cfg.ExcludedApps, name)
+			entry.SetText("")
+			u.apply()
+		}
+	}
+	entry.OnSubmitted = func(string) { add() }
+	u.pickButton = widget.NewButtonWithIcon(pickText, theme.SearchIcon(), u.pickApp)
+
+	return page("Исключения", "В этих приложениях LangSwitch ничего не делает",
+		card(u.toggleRow("Учитывать исключения",
+			"Например, для игр, удалённого рабочего стола или виртуальных машин", &u.cfg.ExcludeEnabled)),
+		caption("ПРИЛОЖЕНИЯ"),
+		card(
+			u.appList,
+			separator(),
+			container.NewBorder(nil, nil, nil, widget.NewButtonWithIcon("Добавить", theme.ContentAddIcon(), add), entry),
+			container.NewHBox(u.pickButton),
+		),
+	)
+}
+
+func (u *settingsUI) generalPage() fyne.CanvasObject {
+	intervalLabel := widget.NewLabel(fmt.Sprintf("%d мс", u.cfg.DoubleIntervalMs))
+	interval := widget.NewSlider(150, 1000)
+	interval.Step = 50
+	interval.SetValue(float64(u.cfg.DoubleIntervalMs))
+	interval.OnChanged = func(v float64) { intervalLabel.SetText(fmt.Sprintf("%d мс", int(v))) }
+	interval.OnChangeEnded = func(v float64) {
+		u.cfg.DoubleIntervalMs = int(v)
+		u.apply()
+	}
+
+	beep := newToggle(u.cfg.Sound, func(on bool) {
+		u.cfg.Sound = on
+		u.apply()
+		if on {
+			sound.Play()
+		}
+	})
+
+	auto := newToggle(autostart.Enabled(), nil)
+	auto.OnChanged = func(on bool) {
+		if err := autostart.Set(on); err != nil {
+			u.status.set("Автозапуск: " + err.Error())
+			auto.On = !on
+			auto.Refresh()
+			return
+		}
+		u.status.set("")
+	}
+
+	return page("Общие", "",
+		card(
+			row("Интервал между нажатиями", "Сколько ждать следующего нажатия клавиши конвертации",
+				fixedWidth(240, container.NewBorder(nil, nil, nil, intervalLabel, interval))),
+			separator(),
+			row("Звук при переключении", "Короткий сигнал при смене раскладки", beep),
+			separator(),
+			row("Запускать при входе в систему", "", auto),
+		),
+		caption("ОБНОВЛЕНИЯ"),
+		card(
+			u.toggleRow("Проверять обновления", "Раз в сутки, через GitHub Releases", &u.cfg.UpdateCheck),
+			separator(),
+			u.updateRow(),
+		),
+	)
+}
+
+// refresh перестраивает списки из u.cfg.
 func (u *settingsUI) refresh() {
 	u.switchList.Objects = u.rows(u.cfg.SwitchHotkeys, func(i int) {
 		u.cfg.SwitchHotkeys = slices.Delete(u.cfg.SwitchHotkeys, i, i+1)
@@ -157,22 +304,24 @@ func (u *settingsUI) refresh() {
 	u.appList.Refresh()
 }
 
+// rows строит строки списка: плашка с названием и кнопка удаления.
 func (u *settingsUI) rows(items []string, remove func(i int)) []fyne.CanvasObject {
 	if len(items) == 0 {
 		empty := widget.NewLabel("Не задано")
 		empty.Importance = widget.LowImportance
 		return []fyne.CanvasObject{empty}
 	}
-	rows := make([]fyne.CanvasObject, 0, len(items))
+	rows := make([]fyne.CanvasObject, 0, 2*len(items))
 	for i, item := range items {
-		name := widget.NewLabel(item)
-		name.TextStyle.Bold = true
 		del := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
 			remove(i)
 			u.apply()
 		})
 		del.Importance = widget.LowImportance
-		rows = append(rows, container.NewBorder(nil, nil, nil, del, name))
+		if i > 0 {
+			rows = append(rows, separator())
+		}
+		rows = append(rows, container.NewBorder(nil, nil, nil, del, container.NewHBox(vcenter(chip(item)))))
 	}
 	return rows
 }
@@ -185,12 +334,12 @@ func (u *settingsUI) apply() {
 		err = config.Save(u.cfg)
 	}
 	if err != nil {
-		u.status.SetText("Ошибка: " + err.Error())
+		u.status.set("Ошибка: " + err.Error())
 		return
 	}
 	u.eng.SetSettings(s)
 	u.up.enabled.Store(u.cfg.UpdateCheck)
-	u.status.SetText("")
+	u.status.set("")
 }
 
 // record записывает сочетание с клавиатуры и передаёт его в add. Esc отменяет запись.
@@ -198,6 +347,8 @@ func (u *settingsUI) record(btn *widget.Button, add func(keys.Hotkey) error) {
 	u.stopRecording()
 	u.recording, u.recordingText = btn, btn.Text
 	btn.SetText("Нажмите клавиши… (Esc — отмена)")
+	btn.Importance = widget.HighImportance
+	btn.Refresh()
 	u.eng.Capture(func(h keys.Hotkey) {
 		fyne.Do(func() {
 			if u.recording != btn {
@@ -208,7 +359,7 @@ func (u *settingsUI) record(btn *widget.Button, add func(keys.Hotkey) error) {
 				return
 			}
 			if err := add(h); err != nil {
-				u.status.SetText(err.Error())
+				u.status.set(err.Error())
 				return
 			}
 			u.apply()
@@ -220,6 +371,8 @@ func (u *settingsUI) stopRecording() {
 	u.eng.CancelCapture()
 	if u.recording != nil {
 		u.recording.SetText(u.recordingText)
+		u.recording.Importance = widget.MediumImportance
+		u.recording.Refresh()
 		u.recording = nil
 	}
 }
@@ -231,75 +384,12 @@ func appendUnique(list []string, v string) []string {
 	return append(list, v)
 }
 
-// toggle создаёт флажок, привязанный к полю настроек.
-func (u *settingsUI) toggle(label string, field *bool) *widget.Check {
-	c := widget.NewCheck(label, func(on bool) {
+// toggleRow — строка настройки с переключателем, привязанным к полю настроек.
+func (u *settingsUI) toggleRow(title, hint string, field *bool) fyne.CanvasObject {
+	return row(title, hint, newToggle(*field, func(on bool) {
 		*field = on
 		u.apply()
-	})
-	c.Checked = *field // без SetChecked, чтобы не вызвать сохранение при построении окна
-	return c
-}
-
-func (u *settingsUI) phraseCard() fyne.CanvasObject {
-	const (
-		tripleMode = "Тройное нажатие клавиши конвертации"
-		keyMode    = "Двойное нажатие отдельной клавиши"
-	)
-	addPhrase := widget.NewButtonWithIcon("Добавить клавишу", theme.ContentAddIcon(), nil)
-	addPhrase.OnTapped = func() {
-		u.record(addPhrase, func(h keys.Hotkey) error {
-			if len(h) != 1 {
-				return errors.New("для двойного нажатия нужна одна клавиша")
-			}
-			u.cfg.PhraseKeys = appendUnique(u.cfg.PhraseKeys, h.String())
-			return nil
-		})
-	}
-	phraseKeys := container.NewVBox(u.phraseList, addPhrase)
-
-	mode := widget.NewRadioGroup([]string{tripleMode, keyMode}, nil)
-	mode.Required = true
-	mode.Selected = keyMode
-	if u.cfg.PhraseTriple {
-		mode.Selected = tripleMode
-		phraseKeys.Hide()
-	}
-	mode.OnChanged = func(v string) {
-		u.cfg.PhraseTriple = v == tripleMode
-		if u.cfg.PhraseTriple {
-			phraseKeys.Hide()
-		} else {
-			phraseKeys.Show()
-		}
-		u.apply()
-	}
-	return widget.NewCard("Конвертация фразы",
-		"Переводит в другую раскладку весь текст, набранный после последнего перемещения курсора (клика, Enter, стрелок)",
-		container.NewVBox(u.toggle("Включено", &u.cfg.PhraseEnabled), mode, phraseKeys))
-}
-
-func (u *settingsUI) excludeCard() fyne.CanvasObject {
-	entry := widget.NewEntry()
-	entry.SetPlaceHolder("Имя программы, например mstsc.exe")
-	add := func() {
-		if name := strings.TrimSpace(entry.Text); name != "" {
-			u.cfg.ExcludedApps = appendUnique(u.cfg.ExcludedApps, name)
-			entry.SetText("")
-			u.apply()
-		}
-	}
-	entry.OnSubmitted = func(string) { add() }
-	addButton := widget.NewButtonWithIcon("", theme.ContentAddIcon(), add)
-
-	u.pickButton = widget.NewButtonWithIcon(pickText, theme.SearchIcon(), u.pickApp)
-	return widget.NewCard("Исключения", "В этих приложениях LangSwitch ничего не делает",
-		container.NewVBox(
-			u.toggle("Включено", &u.cfg.ExcludeEnabled),
-			u.appList,
-			container.NewBorder(nil, nil, nil, addButton, entry),
-			u.pickButton,
-		))
+	}))
 }
 
 const pickText = "Выбрать приложение"
@@ -312,6 +402,8 @@ func (u *settingsUI) pickApp() {
 		return
 	}
 	u.pickButton.SetText("Нажмите клавишу в нужном приложении…")
+	u.pickButton.Importance = widget.HighImportance
+	u.pickButton.Refresh()
 	u.eng.CaptureApp(func(app string) {
 		fyne.Do(func() {
 			u.stopPicking()
@@ -325,15 +417,18 @@ func (u *settingsUI) stopPicking() {
 	u.eng.CancelCaptureApp()
 	if u.pickButton != nil {
 		u.pickButton.SetText(pickText)
+		u.pickButton.Importance = widget.MediumImportance
+		u.pickButton.Refresh()
 	}
 }
 
-func (u *settingsUI) updateBox() fyne.CanvasObject {
-	status := widget.NewLabel("Версия " + version)
+// updateRow — строка с версией программы и кнопкой проверки обновлений.
+func (u *settingsUI) updateRow() fyne.CanvasObject {
+	status := hintLabel("Нажмите «Проверить», чтобы узнать о новой версии")
 	link := widget.NewHyperlink("", nil)
 	link.Hide()
 	var check *widget.Button
-	check = widget.NewButton("Проверить сейчас", func() {
+	check = widget.NewButton("Проверить", func() {
 		check.Disable()
 		status.SetText("Проверка…")
 		go func() {
@@ -351,13 +446,10 @@ func (u *settingsUI) updateBox() fyne.CanvasObject {
 					}
 					u.up.found(rel)
 				default:
-					status.SetText("Установлена последняя версия (" + version + ")")
+					status.SetText("Установлена последняя версия")
 				}
 			})
 		}()
 	})
-	return container.NewVBox(
-		u.toggle("Проверять обновления", &u.cfg.UpdateCheck),
-		container.NewBorder(nil, nil, nil, check, container.NewHBox(status, link)),
-	)
+	return rowWith("Версия "+version, status, container.NewHBox(link, check))
 }
