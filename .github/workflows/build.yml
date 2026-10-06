@@ -17,8 +17,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Иконка и манифест exe
@@ -27,7 +27,7 @@ jobs:
         env:
           CGO_ENABLED: "1"
         run: go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=${{ github.ref_name }}" -o dist/langswitch-windows-amd64.exe .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: windows
           path: dist/*
@@ -35,8 +35,8 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Сборка (arm64 + amd64)
@@ -52,7 +52,7 @@ jobs:
           packaging/macos/bundle.sh build/langswitch "${{ github.ref_name }}" build
           mkdir -p dist
           ditto -c -k --keepParent build/LangSwitch.app dist/langswitch-macos-universal.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: macos
           path: dist/*
@@ -61,8 +61,8 @@ jobs:
     # Самый старый из доступных образов: бинарник будет работать на дистрибутивах с glibc не старше 2.35.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Зависимости
@@ -81,7 +81,7 @@ jobs:
           go build -trimpath -ldflags "-s -w -X main.version=${{ github.ref_name }}" -o build/langswitch .
           mkdir -p dist
           tar -czf dist/langswitch-linux-amd64.tar.gz -C build langswitch
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: linux
           path: dist/*
@@ -93,7 +93,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
