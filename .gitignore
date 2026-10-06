@@ -1,0 +1,10 @@
+# Сборка
+langswitch
+langswitch.exe
+langswitch-debug
+langswitch-debug.exe
+*.syso
+
+# Редакторы
+.idea/
+.vscode/
